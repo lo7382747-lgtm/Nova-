@@ -54,9 +54,24 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Prepare Gradle project layout
+        run: |
+          echo "=== Preparing Gradle Project Layout ==="
+          if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ] && [ -d "android" ]; then
+            echo "Detected Android project in ./android directory. Linking files to repository root..."
+            ln -sfn android/settings.gradle.kts settings.gradle.kts || cp -a android/settings.gradle.kts settings.gradle.kts
+            ln -sfn android/build.gradle.kts build.gradle.kts || cp -a android/build.gradle.kts build.gradle.kts
+            ln -sfn android/gradle gradle || cp -a android/gradle gradle
+            ln -sfn android/app app || cp -a android/app app
+            echo "Successfully linked android/ project to repository root."
+          fi
+          echo "Root layout verified:"
+          ls -la
+
       - name: Create temporary debug keystore
         run: |
           echo "=== Creating Temporary Debug Keystore ==="
+          mkdir -p ~/.android
           if [ -f "./debug.keystore" ]; then
             echo "./debug.keystore already exists."
           else
@@ -72,6 +87,11 @@ jobs:
             exit 1
           fi
 
+          cp -f ./debug.keystore ~/.android/debug.keystore || true
+          if [ -d "android" ]; then
+            cp -f ./debug.keystore android/debug.keystore || true
+          fi
+
           echo "Confirmed: ./debug.keystore exists."
 
       - name: Build debug APK
@@ -81,6 +101,12 @@ jobs:
         run: |
           echo "=== Verifying Debug APK ==="
           TARGET_APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$TARGET_APK" ] && [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
+            echo "Found debug APK at android/app/build/outputs/apk/debug/app-debug.apk, copying to $TARGET_APK..."
+            mkdir -p app/build/outputs/apk/debug
+            cp -f "android/app/build/outputs/apk/debug/app-debug.apk" "$TARGET_APK"
+          fi
 
           if [ ! -f "$TARGET_APK" ]; then
             echo "Error: Expected debug APK not found at $TARGET_APK"
