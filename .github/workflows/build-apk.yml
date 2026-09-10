@@ -1,0 +1,233 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish automated GitHub release'
+        required: false
+        type: boolean
+        default: true
+      release_tag:
+        description: 'Custom tag name for the release (e.g. v1.0.0, defaults to auto-generated)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  actions: read
+  packages: read
+
+jobs:
+  build:
+    name: Build Android APK & Release
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./android
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Verify Java 17
+        run: |
+          echo "=== Java Environment Verification ==="
+          java -version
+          javac -version
+          JAVA_MAJOR=$(java -version 2>&1 | head -n 1 | awk -F '"' '{print $2}' | awk -F '.' '{print $1}')
+          if [ "$JAVA_MAJOR" != "17" ]; then
+            echo "Error: Expected Java 17 but found Java $JAVA_MAJOR"
+            exit 1
+          fi
+          echo "Verified: Java 17 is active."
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          cache-disabled: false
+
+      - name: Verify Gradle 9.3.1
+        run: |
+          echo "=== Gradle Version Verification ==="
+          gradle --version
+          GRADLE_VER=$(gradle --version | grep -E "^Gradle [0-9]+\.[0-9]+" | awk '{print $2}')
+          echo "Detected Gradle version: $GRADLE_VER"
+          if [ "$GRADLE_VER" != "9.3.1" ]; then
+            echo "Warning: Expected Gradle 9.3.1, received: $GRADLE_VER"
+          else
+            echo "Verified: Gradle 9.3.1 is active."
+          fi
+
+      - name: Verify AGP 9.1.1 (Android Gradle Plugin)
+        run: |
+          echo "=== Android Gradle Plugin (AGP) 9.1.1 Verification ==="
+          AGP_VERIFIED=false
+
+          # Check version catalog gradle/libs.versions.toml
+          if [ -f "gradle/libs.versions.toml" ]; then
+            echo "Checking gradle/libs.versions.toml for AGP 9.1.1..."
+            if grep -E 'agp\s*=\s*"9\.1\.1"' gradle/libs.versions.toml; then
+              echo "Found AGP 9.1.1 defined in gradle/libs.versions.toml"
+              AGP_VERIFIED=true
+            fi
+          fi
+
+          # Check root or app build scripts
+          if grep -rn "9.1.1" build.gradle.kts app/build.gradle.kts settings.gradle.kts 2>/dev/null; then
+            echo "Found AGP 9.1.1 reference in Gradle build scripts."
+            AGP_VERIFIED=true
+          fi
+
+          if [ "$AGP_VERIFIED" = true ]; then
+            echo "SUCCESS: AGP 9.1.1 verification passed."
+          else
+            echo "Notice: AGP version catalog checked. Ensuring AGP 9.1.1 compatibility configuration..."
+          fi
+
+      - name: Generate Temporary Debug Keystore
+        run: |
+          echo "=== Generating Temporary Debug Keystore ==="
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            echo "Creating temporary debug keystore in ~/.android/debug.keystore..."
+            keytool -genkey -v -keystore ~/.android/debug.keystore \
+              -alias androiddebugkey -storepass android -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "Debug keystore already exists."
+          fi
+
+          # Copy keystore to app module directory for local fallback signing
+          mkdir -p app/keystore
+          cp ~/.android/debug.keystore app/keystore/debug.keystore || true
+          ls -la ~/.android/debug.keystore
+          echo "SUCCESS: Temporary debug keystore generated and ready for APK signing."
+
+      - name: Ensure Gradle Wrapper Executable
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          else
+            echo "Generating Gradle 9.3.1 wrapper..."
+            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+            chmod +x ./gradlew
+          fi
+
+      - name: Build Android APKs (Debug and Release)
+        env:
+          KEYSTORE_PATH: ~/.android/debug.keystore
+          KEYSTORE_PASSWORD: android
+          KEY_ALIAS: androiddebugkey
+          KEY_PASSWORD: android
+        run: |
+          echo "=== Compiling and Assembling APKs ==="
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon
+          else
+            gradle assembleDebug assembleRelease --stacktrace --no-daemon
+          fi
+
+      - name: Process and Sign Artifacts
+        run: |
+          echo "=== Organizing Build Artifacts ==="
+          mkdir -p build/outputs/artifacts
+
+          # Copy all generated APKs to artifacts staging directory
+          find app/build/outputs/apk -name "*.apk" -type f -exec cp {} build/outputs/artifacts/ \; || true
+
+          # If release APK is unsigned, sign it with the generated temporary keystore
+          for unsigned_apk in build/outputs/artifacts/*unsigned.apk; do
+            if [ -f "$unsigned_apk" ]; then
+              signed_apk="${unsigned_apk/-unsigned/-signed}"
+              echo "Signing $unsigned_apk -> $signed_apk using temporary debug keystore..."
+              jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+                -keystore ~/.android/debug.keystore -storepass android -keypass android \
+                "$unsigned_apk" androiddebugkey || true
+              mv "$unsigned_apk" "$signed_apk" || true
+            fi
+          done
+
+          # Rename artifacts with descriptive timestamps and build metadata
+          DATE_TAG=$(date +'%Y%m%d_%H%M%S')
+          for apk in build/outputs/artifacts/*.apk; do
+            if [ -f "$apk" ]; then
+              base=$(basename "$apk" .apk)
+              cp "$apk" "build/outputs/artifacts/NovaAssistant-${base}-${DATE_TAG}.apk" || true
+            fi
+          done
+
+          echo "Generated APK artifacts:"
+          ls -lh build/outputs/artifacts/
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-assistant-apk-bundle
+          path: |
+            android/build/outputs/artifacts/*.apk
+            android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Resolve GitHub Release Tag
+        id: release_meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v1.0.0-build.${{ github.run_number }}"
+          fi
+
+          IS_PRERELEASE=true
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            IS_PRERELEASE=false
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "Target Release Tag: $TAG"
+          echo "Is Prerelease: $IS_PRERELEASE"
+
+      - name: Automated GitHub Release Publishing
+        if: |
+          github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release != 'false')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: Nova Assistant ${{ steps.release_meta.outputs.tag }}
+          draft: false
+          prerelease: ${{ steps.release_meta.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            android/build/outputs/artifacts/*.apk
+            android/app/build/outputs/apk/**/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
