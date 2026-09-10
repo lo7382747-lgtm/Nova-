@@ -1,0 +1,6 @@
+{
+  "name": "Nova — Core AI Assistant",
+  "description": "Android AI assistant powered by the Gemini API with a 3D female avatar, dynamic voice lip-sync, persistent always-listening background mode via NovaAssistantService, Messenger-style floating chat head bubble, full phone control and chained automation, and WhatsApp safety guardrails.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nova — Core AI Assistant</title>
+    <meta name="description" content="Android AI assistant powered by the Gemini API with a 3D female avatar, dynamic voice lip-sync, persistent always-listening background mode via NovaAssistantService, Messenger-style floating chat head bubble, full phone control and chained automation, and WhatsApp safety guardrails." />
+    <meta property="og:title" content="Nova — Core AI Assistant" />
+    <meta property="og:description" content="Android AI assistant powered by the Gemini API with a 3D female avatar, dynamic voice lip-sync, persistent always-listening background mode via NovaAssistantService, Messenger-style floating chat head bubble, full phone control and chained automation, and WhatsApp safety guardrails." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      // Gracefully prevent benign Vite dev-server HMR websocket disconnection errors from triggering modal overlays
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e && (e.reason || '');
+        var msg = (reason && (reason.message || (typeof reason === 'string' ? reason : (reason.toString && reason.toString())))) || '';
+        if (
+          msg.indexOf('WebSocket closed without opened') !== -1 ||
+          msg.indexOf('failed to connect to websocket') !== -1 ||
+          msg.indexOf('[vite]') !== -1
+        ) {
+          e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        }
+      });
+      window.addEventListener('error', function (e) {
+        var msg = (e && (e.message || (e.error && e.error.message))) || '';
+        if (
+          msg.indexOf('WebSocket closed without opened') !== -1 ||
+          msg.indexOf('failed to connect to websocket') !== -1 ||
+          msg.indexOf('[vite]') !== -1
+        ) {
+          e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
