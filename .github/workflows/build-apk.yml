@@ -76,11 +76,35 @@ jobs:
             cp -a android/build.gradle.kts ./build.gradle.kts
           fi
 
-          # Ensure gradle.properties exists at repository root
-          if [ ! -f "gradle.properties" ] && [ -f "android/gradle.properties" ]; then
-            echo "Copying android/gradle.properties to ./gradle.properties..."
-            cp -a android/gradle.properties ./gradle.properties
+          # Ensure gradle.properties exists and has required flags for AGP 9.1.1
+          if [ ! -f "gradle.properties" ]; then
+            if [ -f "android/gradle.properties" ]; then
+              echo "Copying android/gradle.properties to ./gradle.properties..."
+              cp -a android/gradle.properties ./gradle.properties
+            else
+              echo "Creating gradle.properties..."
+              cat << 'EOF' > gradle.properties
+android.builtInKotlin=false
+android.newDsl=false
+android.useAndroidX=true
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+org.gradle.daemon=false
+org.gradle.parallel=true
+EOF
+            fi
           fi
+
+          if ! grep -q "android.builtInKotlin" gradle.properties; then
+            echo "android.builtInKotlin=false" >> gradle.properties
+          fi
+          if ! grep -q "android.newDsl" gradle.properties; then
+            echo "android.newDsl=false" >> gradle.properties
+          fi
+          if ! grep -q "org.gradle.daemon" gradle.properties; then
+            echo "org.gradle.daemon=false" >> gradle.properties
+          fi
+          mkdir -p android
+          cp -f gradle.properties android/gradle.properties 2>/dev/null || true
 
           echo "Root layout verified:"
           ls -la
@@ -142,15 +166,22 @@ jobs:
         run: |
           echo "=== Building Debug APK with Gradle wrapper ==="
           GRADLE_EXIT_CODE=0
-          ./gradlew assembleDebug --stacktrace || GRADLE_EXIT_CODE=$?
+          ./gradlew assembleDebug --stacktrace --no-daemon -Pandroid.builtInKotlin=false -Pandroid.newDsl=false || GRADLE_EXIT_CODE=$?
 
           echo "Gradle process finished with exit code: $GRADLE_EXIT_CODE"
           TARGET_APK="app/build/outputs/apk/debug/app-debug.apk"
 
-          if [ ! -f "$TARGET_APK" ] && [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
-            echo "Copying debug APK from android/app to $TARGET_APK..."
-            mkdir -p app/build/outputs/apk/debug
-            cp -f "android/app/build/outputs/apk/debug/app-debug.apk" "$TARGET_APK"
+          if [ ! -s "$TARGET_APK" ]; then
+            echo "Searching for generated APK in build directories..."
+            FOUND_APK=$(find . -path "*/build/outputs/apk/debug/*.apk" -not -name "*unaligned*" 2>/dev/null | head -n 1)
+            if [ -z "$FOUND_APK" ]; then
+              FOUND_APK=$(find . -path "*/outputs/apk/*/*.apk" -not -name "*unaligned*" 2>/dev/null | head -n 1)
+            fi
+            if [ -n "$FOUND_APK" ] && [ -s "$FOUND_APK" ]; then
+              echo "Found generated APK at $FOUND_APK. Syncing to $TARGET_APK..."
+              mkdir -p app/build/outputs/apk/debug
+              cp -f "$FOUND_APK" "$TARGET_APK"
+            fi
           fi
 
           if [ -s "$TARGET_APK" ]; then
@@ -161,7 +192,7 @@ jobs:
 
           echo "Error: Debug APK was not generated at $TARGET_APK"
           if [ $GRADLE_EXIT_CODE -ne 0 ]; then
-            echo "Gradle failed with exit code $GRADLE_EXIT_CODE"
+            echo "Gradle build failed with exit code $GRADLE_EXIT_CODE"
             exit $GRADLE_EXIT_CODE
           fi
           exit 1
@@ -292,11 +323,16 @@ jobs:
           - The APK is signed only with a temporary debug keystore."
 
           echo "Creating GitHub Release with tag: $TAG, title: $TITLE"
-          gh release create "$TAG" "$ASSET_PATH" \
-            --title "$TITLE" \
-            --notes "$NOTES" \
-            --target "$GITHUB_SHA" \
-            --latest
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Uploading asset with --clobber..."
+            gh release upload "$TAG" "$ASSET_PATH" --clobber
+          else
+            gh release create "$TAG" "$ASSET_PATH" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --target "$GITHUB_SHA" \
+              --latest
+          fi
 
       - name: Report APK download result
         if: always()
