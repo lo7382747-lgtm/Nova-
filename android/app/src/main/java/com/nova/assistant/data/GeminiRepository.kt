@@ -44,7 +44,7 @@ class GeminiRepository(
      */
     fun sendMessageStream(
         prompt: String,
-        history: List<ChatMessageEntity>
+        history: List<ChatMessageEntity> = emptyList()
     ): Flow<String> = flow {
         val model = getGenerativeModel()
 

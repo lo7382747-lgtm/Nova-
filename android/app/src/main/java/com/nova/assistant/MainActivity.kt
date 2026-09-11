@@ -501,7 +501,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val responseBuilder = StringBuilder()
             try {
                 // If API key is available, stream from Gemini
-                geminiRepository.sendMessageStream(prompt).collect { chunk ->
+                geminiRepository.sendMessageStream(prompt = prompt, history = emptyList()).collect { chunk ->
                     responseBuilder.append(chunk)
                     _lastResponseSnippet.value = responseBuilder.toString()
                 }

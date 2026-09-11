@@ -26,6 +26,47 @@ enum class NovaAssistantState {
 }
 
 /**
+ * Public ComplexDouble data class for audio analysis and math operations.
+ * Exposes public operator overloads for Double, Float, and ComplexDouble.
+ */
+data class ComplexDouble(
+    val real: Double = 0.0,
+    val imaginary: Double = 0.0
+) {
+    operator fun plus(other: ComplexDouble): ComplexDouble =
+        ComplexDouble(real + other.real, imaginary + other.imaginary)
+
+    operator fun minus(other: ComplexDouble): ComplexDouble =
+        ComplexDouble(real - other.real, imaginary - other.imaginary)
+
+    operator fun times(other: ComplexDouble): ComplexDouble =
+        ComplexDouble(
+            real * other.real - imaginary * other.imaginary,
+            real * other.imaginary + imaginary * other.real
+        )
+
+    operator fun times(scalar: Double): ComplexDouble =
+        ComplexDouble(real * scalar, imaginary * scalar)
+
+    operator fun times(scalar: Float): ComplexDouble =
+        ComplexDouble(real * scalar.toDouble(), imaginary * scalar.toDouble())
+
+    operator fun div(scalar: Double): ComplexDouble =
+        ComplexDouble(real / scalar, imaginary / scalar)
+
+    operator fun div(scalar: Float): ComplexDouble =
+        ComplexDouble(real / scalar.toDouble(), imaginary / scalar.toDouble())
+
+    fun toFloat(): Float = real.toFloat()
+    fun toDouble(): Double = real
+}
+
+operator fun Double.times(other: ComplexDouble): ComplexDouble = other * this
+operator fun Float.times(other: ComplexDouble): ComplexDouble = other * this.toDouble()
+operator fun Double.plus(other: ComplexDouble): ComplexDouble = other + ComplexDouble(this, 0.0)
+operator fun Float.plus(other: ComplexDouble): ComplexDouble = other + ComplexDouble(this.toDouble(), 0.0)
+
+/**
  * High-craft Animated Cyber Female Avatar for Nova in Jetpack Compose
  * Replicates the preview's glowing holographic 3D aesthetic with:
  * - Concentric rotating cybernetic rings & pulse waves
@@ -40,6 +81,7 @@ fun NovaAnimatedAvatar(
     size: Dp = 260.dp,
     onClick: () -> Unit = {}
 ) {
+    val avatarDpSize = size
     val infiniteTransition = rememberInfiniteTransition(label = "NovaAvatarTransitions")
 
     // Rotation for outer cyber rings
@@ -114,7 +156,7 @@ fun NovaAnimatedAvatar(
 
     Box(
         modifier = Modifier
-            .size(size)
+            .size(avatarDpSize)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -123,8 +165,10 @@ fun NovaAnimatedAvatar(
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val baseRadius = (min(size.width, size.height) / 2f) * 0.85f
+            val canvasWidth: Float = this.size.width
+            val canvasHeight: Float = this.size.height
+            val centerOffset: Offset = this.center
+            val baseRadius: Float = (min(canvasWidth, canvasHeight) / 2f) * 0.85f
 
             // 1. Ambient Background Neon Glow
             drawCircle(
@@ -139,23 +183,23 @@ fun NovaAnimatedAvatar(
                         Color(0xFF0B192C).copy(alpha = 0.15f),
                         Color.Transparent
                     ),
-                    center = center,
+                    center = centerOffset,
                     radius = baseRadius * 1.3f
                 ),
                 radius = baseRadius * 1.3f,
-                center = center
+                center = centerOffset
             )
 
             // 2. Concentric Holographic Cyber Rings
-            drawCyberRings(center, baseRadius * pulseScale, ringRotation, state)
+            drawCyberRings(centerOffset, baseRadius * pulseScale, ringRotation, state)
 
             // 3. Floating Orbiting Particles
-            drawOrbitingParticles(center, baseRadius, ringRotation, state)
+            drawOrbitingParticles(centerOffset, baseRadius, ringRotation, state)
 
             // 4. Center Core: Cyber Female Avatar or Nova Orb
             if (isAvatarMode) {
                 drawCyberFemaleAvatar(
-                    center = center,
+                    center = centerOffset,
                     radius = baseRadius * 0.72f,
                     state = state,
                     voicePhase = voiceBarPhase,
@@ -164,7 +208,7 @@ fun NovaAnimatedAvatar(
                 )
             } else {
                 drawNovaCoreOrb(
-                    center = center,
+                    center = centerOffset,
                     radius = baseRadius * 0.65f,
                     state = state,
                     pulse = pulseScale
@@ -256,11 +300,13 @@ private fun DrawScope.drawOrbitingParticles(
     }
 
     val numParticles = 6
+    val degToRad = (PI / 180.0).toFloat()
     for (i in 0 until numParticles) {
-        val angleRad = Math.toRadians((rotation + (i * 360f / numParticles)).toDouble())
-        val particleRadius = radius * (0.85f + 0.1f * sin(angleRad * 2).toFloat())
-        val px = center.x + (particleRadius * cos(angleRad)).toFloat()
-        val py = center.y + (particleRadius * sin(angleRad)).toFloat()
+        val angleDeg = rotation + (i.toFloat() * 360f / numParticles.toFloat())
+        val angleRad = angleDeg * degToRad
+        val particleRadius = radius * (0.85f + 0.1f * sin(angleRad * 2f))
+        val px = center.x + (particleRadius * cos(angleRad))
+        val py = center.y + (particleRadius * sin(angleRad))
 
         drawCircle(
             color = particleColor.copy(alpha = 0.85f),
