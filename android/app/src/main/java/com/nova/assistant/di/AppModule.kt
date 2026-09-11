@@ -39,4 +39,12 @@ object AppModule {
     fun provideActivityLogDao(database: NovaDatabase): ActivityLogDao {
         return database.activityLogDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideGeminiRepository(messageDao: MessageDao): com.nova.assistant.data.GeminiRepository {
+        return com.nova.assistant.data.GeminiRepository(messageDao) {
+            com.nova.assistant.BuildConfig.GEMINI_API_KEY.ifEmpty { "DEMO_KEY" }
+        }
+    }
 }

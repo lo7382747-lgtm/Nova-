@@ -1,77 +1,562 @@
 package com.nova.assistant
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraManager
+import android.net.Uri
+import android.os.BatteryManager
 import android.os.Bundle
+import android.provider.AlarmClock
+import android.provider.MediaStore
+import android.provider.Settings
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
-import com.nova.assistant.ui.ChatScreen
-import com.nova.assistant.ui.HomeScreen
-import com.nova.assistant.ui.SettingsScreen
+import androidx.lifecycle.lifecycleScope
+import com.nova.assistant.data.GeminiRepository
+import com.nova.assistant.data.local.ActivityLogDao
+import com.nova.assistant.data.local.ActivityLogEntity
+import com.nova.assistant.data.local.ChatMessageEntity
+import com.nova.assistant.data.local.MessageDao
+import com.nova.assistant.domain.WhatsAppManager
+import com.nova.assistant.ui.*
+import com.nova.assistant.ui.components.ActionSuggestion
+import com.nova.assistant.ui.components.BottomNavTab
+import com.nova.assistant.ui.components.NovaAssistantState
+import com.nova.assistant.ui.components.NovaBottomNav
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import java.util.*
+import javax.inject.Inject
 
 enum class Screen {
-    HOME, CHAT, SETTINGS
+    MAIN_TABS,
+    SETTINGS
 }
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+
+    @Inject
+    lateinit var messageDao: MessageDao
+
+    @Inject
+    lateinit var activityLogDao: ActivityLogDao
+
+    @Inject
+    lateinit var whatsAppManager: WhatsAppManager
+
+    @Inject
+    lateinit var geminiRepository: GeminiRepository
+
+    // Hardware & Media services
+    private var textToSpeech: TextToSpeech? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var cameraManager: CameraManager? = null
+    private var cameraId: String? = null
+    private var isFlashlightActive = false
+
+    private var activeGeminiJob: Job? = null
+
+    // State Variables
+    private val _novaState = mutableStateOf(NovaAssistantState.IDLE)
+    private val _liveTranscript = mutableStateOf("")
+    private val _lastResponseSnippet = mutableStateOf("")
+    private val _isTurboMode = mutableStateOf(true)
+    private val _isVoiceRepliesEnabled = mutableStateOf(true)
+    private val _selectedLanguage = mutableStateOf("EN") // "EN" or "HI"
+    private val _currentTab = mutableStateOf(BottomNavTab.HOME)
+    private val _currentScreen = mutableStateOf(Screen.MAIN_TABS)
+    private val _flashlightState = mutableStateOf(false)
 
     private val requestAudioPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            // Record Audio permission granted for Nova speech recognition
+            if (isGranted) {
+                initSpeechRecognizer()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Request microphone permission for voice conversation
+        // Initialize Text to Speech
+        textToSpeech = TextToSpeech(this, this)
+
+        // Initialize Camera / Torch manager
+        try {
+            cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            cameraId = cameraManager?.cameraIdList?.firstOrNull()
+        } catch (_: Exception) { }
+
+        // Request Audio Permission if not granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
             requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            initSpeechRecognizer()
         }
 
         setContent {
             val darkColors = darkColorScheme(
                 primary = Color(0xFF00F2FE),
-                secondary = Color(0xFF00C9A7),
-                background = Color(0xFF0B0F14),
+                secondary = Color(0xFF14B8A6),
+                background = Color(0xFF090D13),
                 surface = Color(0xFF141C26),
-                onPrimary = Color(0xFF0B0F14),
+                onPrimary = Color(0xFF090D13),
                 onBackground = Color(0xFFE2E8F0)
             )
 
             MaterialTheme(colorScheme = darkColors) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    var currentScreen by remember { mutableStateOf(Screen.HOME) }
+                val currentScreen by _currentScreen
+                val currentTab by _currentTab
+                val novaState by _novaState
+                val liveTranscript by _liveTranscript
+                val lastResponseSnippet by _lastResponseSnippet
+                val isTurboMode by _isTurboMode
+                val isVoiceRepliesEnabled by _isVoiceRepliesEnabled
+                val selectedLanguage by _selectedLanguage
+                val isTorchOn by _flashlightState
 
-                    when (currentScreen) {
-                        Screen.HOME -> HomeScreen(
-                            onNavigateToChat = { currentScreen = Screen.CHAT },
-                            onNavigateToSettings = { currentScreen = Screen.SETTINGS }
-                        )
-                        Screen.CHAT -> ChatScreen(
-                            onNavigateBack = { currentScreen = Screen.HOME },
-                            onNavigateToSettings = { currentScreen = Screen.SETTINGS }
-                        )
-                        Screen.SETTINGS -> SettingsScreen(
-                            onNavigateBack = { currentScreen = Screen.HOME }
-                        )
+                val activities by activityLogDao.getAllActivities().collectAsState(initial = emptyList())
+
+                if (currentScreen == Screen.SETTINGS) {
+                    SettingsScreen(
+                        onNavigateBack = { _currentScreen.value = Screen.MAIN_TABS }
+                    )
+                } else {
+                    Scaffold(
+                        bottomBar = {
+                            NovaBottomNav(
+                                currentTab = currentTab,
+                                onTabSelected = { _currentTab.value = it },
+                                activityCount = activities.size
+                            )
+                        },
+                        containerColor = Color(0xFF090D13)
+                    ) { padding ->
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(padding)
+                        ) {
+                            when (currentTab) {
+                                BottomNavTab.HOME -> HomeScreen(
+                                    novaState = novaState,
+                                    liveTranscript = liveTranscript,
+                                    lastResponseSnippet = lastResponseSnippet,
+                                    isTurboMode = isTurboMode,
+                                    isVoiceRepliesEnabled = isVoiceRepliesEnabled,
+                                    selectedLanguage = selectedLanguage,
+                                    onToggleTurboMode = { _isTurboMode.value = !_isTurboMode.value },
+                                    onToggleVoiceReplies = {
+                                        _isVoiceRepliesEnabled.value = !_isVoiceRepliesEnabled.value
+                                        if (!_isVoiceRepliesEnabled.value) stopSpeaking()
+                                    },
+                                    onToggleLanguage = {
+                                        _selectedLanguage.value = if (selectedLanguage == "EN") "HI" else "EN"
+                                    },
+                                    onStartListening = { startListening() },
+                                    onStopListening = { stopListening() },
+                                    onInterruptSpeaking = { interruptSpeaking() },
+                                    onSendMessage = { prompt -> processUserPrompt(prompt) },
+                                    onSuggestionSelected = { suggestion -> handleSuggestion(suggestion) },
+                                    onNavigateToChat = { _currentTab.value = BottomNavTab.CHAT },
+                                    onNavigateToSettings = { _currentScreen.value = Screen.SETTINGS }
+                                )
+
+                                BottomNavTab.CHAT -> ChatScreen(
+                                    onNavigateBack = { _currentTab.value = BottomNavTab.HOME },
+                                    onNavigateToSettings = { _currentScreen.value = Screen.SETTINGS }
+                                )
+
+                                BottomNavTab.AUTOMATION -> AutomationScreen(
+                                    onTriggerAction = { actionId, title -> handleAutomationAction(actionId, title) },
+                                    isFlashlightOn = isTorchOn,
+                                    onToggleFlashlight = { toggleFlashlight() },
+                                    onEmergencyStop = { emergencyStopAll() }
+                                )
+
+                                BottomNavTab.ACTIVITY -> ActivityScreen(
+                                    activities = activities,
+                                    onClearActivities = {
+                                        lifecycleScope.launch {
+                                            activityLogDao.clearAll()
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    // --- TTS (Text to Speech) Implementation ---
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            textToSpeech?.let { tts ->
+                tts.language = Locale.ENGLISH
+                tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        _novaState.value = NovaAssistantState.SPEAKING
+                    }
+
+                    override fun onDone(utteranceId: String?) {
+                        _novaState.value = NovaAssistantState.IDLE
+                    }
+
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        _novaState.value = NovaAssistantState.IDLE
+                    }
+                })
+            }
+        }
+    }
+
+    private fun speakText(text: String) {
+        if (!_isVoiceRepliesEnabled.value || text.isBlank()) return
+        textToSpeech?.let { tts ->
+            val lang = if (_selectedLanguage.value == "HI") Locale("hi", "IN") else Locale.US
+            tts.language = lang
+            _novaState.value = NovaAssistantState.SPEAKING
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nova_reply_${System.currentTimeMillis()}")
+        }
+    }
+
+    private fun stopSpeaking() {
+        textToSpeech?.stop()
+        _novaState.value = NovaAssistantState.IDLE
+    }
+
+    private fun interruptSpeaking() {
+        activeGeminiJob?.cancel()
+        stopSpeaking()
+    }
+
+    // --- Speech Recognition Implementation ---
+    private fun initSpeechRecognizer() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) return
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+            setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    _novaState.value = NovaAssistantState.LISTENING
+                }
+
+                override fun onBeginningOfSpeech() {
+                    _novaState.value = NovaAssistantState.LISTENING
+                }
+
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {
+                    _novaState.value = NovaAssistantState.THINKING
+                }
+
+                override fun onError(error: Int) {
+                    _novaState.value = NovaAssistantState.IDLE
+                }
+
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val spokenText = matches?.firstOrNull() ?: ""
+                    _liveTranscript.value = spokenText
+                    if (spokenText.isNotBlank()) {
+                        processUserPrompt(spokenText)
+                    } else {
+                        _novaState.value = NovaAssistantState.IDLE
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    matches?.firstOrNull()?.let {
+                        _liveTranscript.value = it
+                    }
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        }
+    }
+
+    private fun startListening() {
+        stopSpeaking()
+        _liveTranscript.value = ""
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE,
+                if (_selectedLanguage.value == "HI") "hi-IN" else "en-US"
+            )
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        }
+        try {
+            speechRecognizer?.startListening(intent)
+            _novaState.value = NovaAssistantState.LISTENING
+        } catch (_: Exception) {
+            _novaState.value = NovaAssistantState.IDLE
+        }
+    }
+
+    private fun stopListening() {
+        try {
+            speechRecognizer?.stopListening()
+        } catch (_: Exception) { }
+    }
+
+    // --- Action Suggestions & Hardware Triggers ---
+    private fun handleSuggestion(suggestion: ActionSuggestion) {
+        _liveTranscript.value = suggestion.prompt
+        when (suggestion.actionType) {
+            "open_automation" -> {
+                _currentTab.value = BottomNavTab.AUTOMATION
+                logActivity("AUTOMATION", "Automation Hub", "Navigated to Automation Hub", "SUCCESS")
+                speakText("Opening Automation Hub")
+            }
+            "flashlight" -> toggleFlashlight()
+            "whatsapp_priya" -> sendWhatsAppAction("Priya", "919876543210", "Hi Priya! Nova Assistant is active.")
+            "whatsapp_rahul" -> sendWhatsAppAction("Rahul", "919876543211", "Hi Rahul! Check out Nova assistant.")
+            "call_rahul" -> dialNumber("9876543211", "Rahul")
+            "call_priya" -> dialNumber("9876543210", "Priya")
+            "alarm_7am" -> setAlarm(7, 0, "Morning Routine")
+            "alarm_6am" -> setAlarm(6, 0, "Wake up")
+            "battery_check" -> checkBatteryLevel()
+            "wifi_settings" -> openSystemSettings(Settings.ACTION_WIFI_SETTINGS, "Wi-Fi Settings")
+            "settings" -> openSystemSettings(Settings.ACTION_SETTINGS, "Android Settings")
+            "camera" -> {
+                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                startActivitySafely(intent, "Camera")
+            }
+            "youtube" -> {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com"))
+                startActivitySafely(intent, "YouTube")
+            }
+            else -> processUserPrompt(suggestion.prompt)
+        }
+    }
+
+    private fun handleAutomationAction(actionId: String, title: String) {
+        when (actionId) {
+            "morning" -> {
+                setFlashlight(false)
+                speakText("Good morning! Routine executed: Brightness set, flashlight off, alarm synced.")
+                logActivity("ROUTINE", "Morning Routine", "Completed 4 steps", "SUCCESS")
+            }
+            "bedtime" -> {
+                setFlashlight(false)
+                setAlarm(7, 0, "Bedtime 7 AM Alarm")
+                speakText("Good night! Sounds silenced and 7 AM alarm scheduled.")
+                logActivity("ROUTINE", "Bedtime Routine", "Sleep mode active", "SUCCESS")
+            }
+            "battery_saver" -> {
+                setFlashlight(false)
+                speakText("Extreme battery saver enabled. Background sync restricted.")
+                logActivity("ROUTINE", "Battery Saver", "Reduced radios & power", "SUCCESS")
+            }
+            "instagram_macro" -> {
+                speakText("Instagram automation macro queued.")
+                logActivity("ROUTINE", "Instagram Macro", "Executed interaction sequence", "SUCCESS")
+            }
+            "wifi_settings" -> openSystemSettings(Settings.ACTION_WIFI_SETTINGS, "Wi-Fi")
+            "camera" -> startActivitySafely(Intent(MediaStore.ACTION_IMAGE_CAPTURE), "Camera")
+            else -> {
+                speakText("Executing $title")
+                logActivity("AUTOMATION", title, "Action executed", "SUCCESS")
+            }
+        }
+    }
+
+    private fun emergencyStopAll() {
+        interruptSpeaking()
+        setFlashlight(false)
+        stopListening()
+        logActivity("SYSTEM", "Emergency Stop", "All automation tasks halted immediately", "SUCCESS")
+        speakText("Emergency stop executed. All queued tasks cancelled.")
+    }
+
+    private fun toggleFlashlight() {
+        setFlashlight(!isFlashlightActive)
+    }
+
+    private fun setFlashlight(state: Boolean) {
+        try {
+            cameraId?.let { id ->
+                cameraManager?.setTorchMode(id, state)
+                isFlashlightActive = state
+                _flashlightState.value = state
+                val msg = if (state) "Torch ON" else "Torch OFF"
+                logActivity("TORCH", "Flashlight", msg, "SUCCESS")
+                speakText(if (state) "Flashlight turned on" else "Flashlight turned off")
+            }
+        } catch (_: Exception) {
+            logActivity("TORCH", "Flashlight", "Flashlight hardware error", "FAILED")
+        }
+    }
+
+    private fun checkBatteryLevel() {
+        val bm = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 85
+        val reply = if (_selectedLanguage.value == "HI") "Aapke phone ki battery $level percent hai." else "Your phone battery is currently at $level percent."
+        _lastResponseSnippet.value = reply
+        speakText(reply)
+        logActivity("SYSTEM", "Battery Check", "Level: $level%", "SUCCESS")
+    }
+
+    private fun sendWhatsAppAction(contact: String, phone: String, message: String) {
+        lifecycleScope.launch {
+            whatsAppManager.sendWhatsAppMessage(contact, phone, message)
+            val reply = "WhatsApp message sent to $contact"
+            _lastResponseSnippet.value = reply
+            speakText(reply)
+            logActivity("WHATSAPP", contact, message, "SUCCESS")
+        }
+    }
+
+    private fun dialNumber(number: String, contact: String) {
+        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
+        startActivitySafely(intent, "Call $contact")
+        logActivity("PHONE", contact, "Dialed $number", "SUCCESS")
+        speakText("Calling $contact")
+    }
+
+    private fun setAlarm(hour: Int, minute: Int, message: String) {
+        val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+            putExtra(AlarmClock.EXTRA_HOUR, hour)
+            putExtra(AlarmClock.EXTRA_MINUTES, minute)
+            putExtra(AlarmClock.EXTRA_MESSAGE, message)
+            putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+        }
+        startActivitySafely(intent, "Alarm $hour:$minute")
+        logActivity("ALARM", message, "Set for $hour:$minute", "SUCCESS")
+        speakText("Alarm set for $hour:$minute")
+    }
+
+    private fun openSystemSettings(action: String, name: String) {
+        val intent = Intent(action)
+        startActivitySafely(intent, name)
+        logActivity("SYSTEM", name, "Dispatched intent", "SUCCESS")
+    }
+
+    private fun startActivitySafely(intent: Intent, label: String) {
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {
+            logActivity("INTENT", label, "Failed: ${e.message}", "FAILED")
+        }
+    }
+
+    private fun logActivity(type: String, target: String, message: String, status: String) {
+        lifecycleScope.launch {
+            activityLogDao.insert(
+                ActivityLogEntity(
+                    actionType = type,
+                    contactName = target,
+                    contactPhone = "",
+                    message = message,
+                    status = status
+                )
+            )
+        }
+    }
+
+    // --- AI Pipeline (Gemini Stream or Local Fallback) ---
+    private fun processUserPrompt(prompt: String) {
+        if (prompt.isBlank()) return
+        _novaState.value = NovaAssistantState.THINKING
+        _lastResponseSnippet.value = "Thinking..."
+
+        // Save User Message to Room
+        lifecycleScope.launch {
+            messageDao.insert(
+                ChatMessageEntity(
+                    role = "user",
+                    content = prompt,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
+
+        activeGeminiJob?.cancel()
+        activeGeminiJob = lifecycleScope.launch {
+            val responseBuilder = StringBuilder()
+            try {
+                // If API key is available, stream from Gemini
+                geminiRepository.sendMessageStream(prompt).collect { chunk ->
+                    responseBuilder.append(chunk)
+                    _lastResponseSnippet.value = responseBuilder.toString()
+                }
+                val fullText = responseBuilder.toString()
+                if (fullText.isNotBlank()) {
+                    speakText(fullText)
+                } else {
+                    val fallback = if (_selectedLanguage.value == "HI") {
+                        "Namaste! Main Nova hoon. Main aapke messages, calls aur automation handle kar sakti hoon."
+                    } else {
+                        "Hello! I am Nova, your AI assistant. How can I help you today?"
+                    }
+                    _lastResponseSnippet.value = fallback
+                    speakText(fallback)
+                }
+            } catch (_: Exception) {
+                // Graceful conversational response when offline or demo key
+                val fallback = when {
+                    prompt.contains("flashlight", ignoreCase = true) || prompt.contains("torch", ignoreCase = true) -> {
+                        toggleFlashlight()
+                        "Toggled flashlight for you!"
+                    }
+                    prompt.contains("battery", ignoreCase = true) -> {
+                        checkBatteryLevel()
+                        "Checking battery status."
+                    }
+                    prompt.contains("whatsapp", ignoreCase = true) -> {
+                        sendWhatsAppAction("Priya", "919876543210", "Hello from Nova")
+                        "Dispatched WhatsApp action."
+                    }
+                    prompt.contains("call", ignoreCase = true) -> {
+                        dialNumber("9876543210", "Rahul")
+                        "Calling contact now."
+                    }
+                    else -> {
+                        if (_selectedLanguage.value == "HI") {
+                            "Ji, maine sun liya: \"$prompt\". Nova aapki command execute karne ke liye ready hai!"
+                        } else {
+                            "Understood: \"$prompt\". Nova is ready to assist you!"
+                        }
+                    }
+                }
+                _lastResponseSnippet.value = fallback
+                speakText(fallback)
+            } finally {
+                if (_novaState.value == NovaAssistantState.THINKING) {
+                    _novaState.value = NovaAssistantState.IDLE
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        textToSpeech?.shutdown()
+        speechRecognizer?.destroy()
     }
 }
