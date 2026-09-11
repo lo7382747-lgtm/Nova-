@@ -76,6 +76,12 @@ jobs:
             cp -a android/build.gradle.kts ./build.gradle.kts
           fi
 
+          # Ensure gradle.properties exists at repository root
+          if [ ! -f "gradle.properties" ] && [ -f "android/gradle.properties" ]; then
+            echo "Copying android/gradle.properties to ./gradle.properties..."
+            cp -a android/gradle.properties ./gradle.properties
+          fi
+
           echo "Root layout verified:"
           ls -la
 
@@ -133,7 +139,7 @@ jobs:
           echo "Confirmed: ./debug.keystore exists."
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace -Pandroid.builtInKotlin=false -Pandroid.newDsl=false
 
       - name: Verify debug APK
         run: |
