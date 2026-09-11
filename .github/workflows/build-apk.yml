@@ -86,6 +86,7 @@ jobs:
               {
                 echo "android.builtInKotlin=false"
                 echo "android.newDsl=false"
+                echo "ksp.useKSP2=false"
                 echo "android.useAndroidX=true"
                 echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8"
                 echo "org.gradle.daemon=false"
@@ -99,6 +100,9 @@ jobs:
           fi
           if ! grep -q "android.newDsl" gradle.properties; then
             echo "android.newDsl=false" >> gradle.properties
+          fi
+          if ! grep -q "ksp.useKSP2" gradle.properties; then
+            echo "ksp.useKSP2=false" >> gradle.properties
           fi
           if ! grep -q "org.gradle.daemon" gradle.properties; then
             echo "org.gradle.daemon=false" >> gradle.properties
@@ -166,7 +170,7 @@ jobs:
         run: |
           echo "=== Building Debug APK with Gradle wrapper ==="
           GRADLE_EXIT_CODE=0
-          ./gradlew assembleDebug --stacktrace --no-daemon -Pandroid.builtInKotlin=false -Pandroid.newDsl=false || GRADLE_EXIT_CODE=$?
+          ./gradlew assembleDebug --stacktrace --no-daemon -Pandroid.builtInKotlin=false -Pandroid.newDsl=false -Pksp.useKSP2=false || GRADLE_EXIT_CODE=$?
 
           echo "Gradle process finished with exit code: $GRADLE_EXIT_CODE"
           TARGET_APK="app/build/outputs/apk/debug/app-debug.apk"
