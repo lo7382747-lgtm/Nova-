@@ -83,14 +83,14 @@ jobs:
               cp -a android/gradle.properties ./gradle.properties
             else
               echo "Creating gradle.properties..."
-              cat << 'EOF' > gradle.properties
-android.builtInKotlin=false
-android.newDsl=false
-android.useAndroidX=true
-org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-org.gradle.daemon=false
-org.gradle.parallel=true
-EOF
+              {
+                echo "android.builtInKotlin=false"
+                echo "android.newDsl=false"
+                echo "android.useAndroidX=true"
+                echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8"
+                echo "org.gradle.daemon=false"
+                echo "org.gradle.parallel=true"
+              } > gradle.properties
             fi
           fi
 
