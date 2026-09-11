@@ -17,11 +17,13 @@ import androidx.core.content.ContextCompat
 import com.nova.assistant.ui.ChatScreen
 import com.nova.assistant.ui.HomeScreen
 import com.nova.assistant.ui.SettingsScreen
+import dagger.hilt.android.AndroidEntryPoint
 
 enum class Screen {
     HOME, CHAT, SETTINGS
 }
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val requestAudioPermission =
