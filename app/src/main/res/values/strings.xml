@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Nova Assistant</string>
+    <string name="accessibility_service_description">Nova Assistant Automation Service enables intelligent accessibility navigation, text entry, clicking, and chained automation routines.</string>
+</resources>

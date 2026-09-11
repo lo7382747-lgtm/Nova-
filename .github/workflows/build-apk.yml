@@ -49,24 +49,63 @@ jobs:
 
           echo "Verified: Java major version is $JAVA_MAJOR (>= 17)."
 
+      - name: Prepare Gradle project layout
+        run: |
+          echo "=== Preparing Gradle Project Layout ==="
+          # Ensure app directory exists at repository root
+          if [ ! -d "app" ] && [ -d "android/app" ]; then
+            echo "Copying android/app to ./app..."
+            cp -a android/app ./app
+          fi
+
+          # Ensure gradle directory exists at repository root
+          if [ ! -d "gradle" ] && [ -d "android/gradle" ]; then
+            echo "Copying android/gradle to ./gradle..."
+            cp -a android/gradle ./gradle
+          fi
+
+          # Ensure settings.gradle.kts exists at repository root
+          if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ] && [ -f "android/settings.gradle.kts" ]; then
+            echo "Copying android/settings.gradle.kts to ./settings.gradle.kts..."
+            cp -a android/settings.gradle.kts ./settings.gradle.kts
+          fi
+
+          # Ensure build.gradle.kts exists at repository root
+          if [ ! -f "build.gradle.kts" ] && [ ! -f "build.gradle" ] && [ -f "android/build.gradle.kts" ]; then
+            echo "Copying android/build.gradle.kts to ./build.gradle.kts..."
+            cp -a android/build.gradle.kts ./build.gradle.kts
+          fi
+
+          echo "Root layout verified:"
+          ls -la
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configure Android SDK Platform and Build Tools
+        run: |
+          echo "=== Configuring Android SDK (API 35, Build-Tools 35.0.0) ==="
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+          cache-disabled: false
 
-      - name: Prepare Gradle project layout
+      - name: Ensure Gradle wrapper executable
         run: |
-          echo "=== Preparing Gradle Project Layout ==="
-          if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ] && [ -d "android" ]; then
-            echo "Detected Android project in ./android directory. Linking files to repository root..."
-            ln -sfn android/settings.gradle.kts settings.gradle.kts || cp -a android/settings.gradle.kts settings.gradle.kts
-            ln -sfn android/build.gradle.kts build.gradle.kts || cp -a android/build.gradle.kts build.gradle.kts
-            ln -sfn android/gradle gradle || cp -a android/gradle gradle
-            ln -sfn android/app app || cp -a android/app app
-            echo "Successfully linked android/ project to repository root."
+          echo "=== Verifying Gradle Wrapper ==="
+          if [ ! -f "./gradlew" ]; then
+            if [ -f "android/gradlew" ]; then
+              cp -a android/gradlew ./gradlew
+            else
+              echo "Generating Gradle wrapper matching project distribution (Gradle 9.3.1)..."
+              gradle wrapper --gradle-version 9.3.1
+            fi
           fi
-          echo "Root layout verified:"
-          ls -la
+          chmod +x ./gradlew
 
       - name: Create temporary debug keystore
         run: |
@@ -88,14 +127,13 @@ jobs:
           fi
 
           cp -f ./debug.keystore ~/.android/debug.keystore || true
-          if [ -d "android" ]; then
-            cp -f ./debug.keystore android/debug.keystore || true
-          fi
+          mkdir -p app
+          cp -f ./debug.keystore app/debug.keystore || true
 
           echo "Confirmed: ./debug.keystore exists."
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Verify debug APK
         run: |
