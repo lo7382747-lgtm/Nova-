@@ -44,7 +44,7 @@ class ApiKeyManager @Inject constructor(
 
     private fun initSecurePreferences(): SharedPreferences {
         return try {
-            val masterKey = MasterKey.Builder(context)
+            val masterKey = MasterKey.Builder(context, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
 
@@ -170,5 +170,16 @@ class ApiKeyManager @Inject constructor(
             Log.e(TAG, "Network failure validating API key", e)
             Result.failure(Exception(e.localizedMessage ?: "Network connection error while testing key"))
         }
+    }
+
+    /**
+     * Validates an API key and, if valid, saves it to secure persistent storage.
+     */
+    suspend fun validateAndSaveKey(key: String): Result<Boolean> {
+        val result = validateApiKey(key)
+        if (result.isSuccess) {
+            saveApiKey(key)
+        }
+        return result
     }
 }
