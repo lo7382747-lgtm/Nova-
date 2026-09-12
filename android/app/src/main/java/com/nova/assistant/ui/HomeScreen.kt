@@ -35,6 +35,9 @@ fun HomeScreen(
     isTurboMode: Boolean = true,
     isVoiceRepliesEnabled: Boolean = true,
     selectedLanguage: String = "EN", // "EN" or "HI"
+    isLiveCallActive: Boolean = false,
+    audioAmplitude: Float = 0f,
+    onToggleLiveCall: () -> Unit = {},
     onToggleTurboMode: () -> Unit = {},
     onToggleVoiceReplies: () -> Unit = {},
     onToggleLanguage: () -> Unit = {},
@@ -52,10 +55,13 @@ fun HomeScreen(
     val isThinking = novaState == NovaAssistantState.THINKING
 
     val statusText = when {
+        isLiveCallActive && isListening -> if (liveTranscript.isNotBlank()) "\"$liveTranscript\"" else "LIVE CALL: LISTENING... SPEAK NATURALLY"
+        isLiveCallActive && isSpeaking -> "LIVE CALL: NOVA SPEAKING (INTERRUPT ANYTIME)"
+        isLiveCallActive && isThinking -> "LIVE CALL: NOVA PROCESSING..."
         isListening -> if (liveTranscript.isNotBlank()) "\"$liveTranscript\"" else "LISTENING... SPEAK NOW"
         isThinking -> "NOVA IS THINKING..."
         isSpeaking -> "NOVA IS SPEAKING..."
-        else -> "TAP AVATAR OR MIC TO SPEAK WITH NOVA"
+        else -> "TAP LIVE CALL OR MIC TO SPEAK WITH NOVA"
     }
 
     val scrollState = rememberScrollState()
@@ -114,7 +120,7 @@ fun HomeScreen(
                             color = Color(0xFF00F2FE)
                         )
 
-                        // Status Badge: Gemini 3.6 Connected & Language Pill
+                        // Status Badge: Gemini Live Connected / Language Pill
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -122,16 +128,16 @@ fun HomeScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
+                                    .size(7.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF00F2FE))
+                                    .background(if (isLiveCallActive) Color(0xFFEF4444) else Color(0xFF00F2FE))
                             )
                             Text(
-                                text = "GEMINI 3.6 CONNECTED",
+                                text = if (isLiveCallActive) "LIVE CALL ACTIVE (GEMINI 2.0 LIVE)" else "GEMINI 3.6 CONNECTED",
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.sp,
-                                color = Color(0xFF94A3B8)
+                                color = if (isLiveCallActive) Color(0xFFEF4444) else Color(0xFF94A3B8)
                             )
 
                             // Language Switcher (EN / HI)
@@ -263,9 +269,10 @@ fun HomeScreen(
                     isAvatarMode = isAvatarMode,
                     size = 230.dp,
                     onClick = {
-                        if (isListening) onStopListening()
-                        else if (isSpeaking) onInterruptSpeaking()
-                        else onStartListening()
+                        if (isSpeaking) onInterruptSpeaking()
+                        else if (isLiveCallActive) onInterruptSpeaking()
+                        else if (isListening) onStopListening()
+                        else onToggleLiveCall()
                     }
                 )
 
@@ -309,6 +316,32 @@ fun HomeScreen(
                     }
                 }
 
+                // Real-time Audio Waveform Equalizer (when in Live Call)
+                if (isLiveCallActive) {
+                    Row(
+                        modifier = Modifier
+                            .padding(top = 10.dp)
+                            .height(24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val barCount = 7
+                        for (i in 0 until barCount) {
+                            val factor = (sin((i.toFloat() / barCount) * Math.PI) * (0.4f + audioAmplitude * 0.6f)).coerceIn(0.15f, 1.0f).toFloat()
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .height((20.dp * factor))
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(
+                                        if (isSpeaking) Color(0xFF2DD4BF)
+                                        else Color(0xFF00F2FE)
+                                    )
+                            )
+                        }
+                    }
+                }
+
                 // 3. DYNAMIC STATUS TEXT
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
@@ -319,6 +352,8 @@ fun HomeScreen(
                     letterSpacing = 1.2.sp,
                     textAlign = TextAlign.Center,
                     color = when {
+                        isLiveCallActive && isSpeaking -> Color(0xFF2DD4BF)
+                        isLiveCallActive && isListening -> Color(0xFF00F2FE)
                         isListening -> Color(0xFF00F2FE)
                         isSpeaking -> Color(0xFF2DD4BF)
                         isThinking -> Color(0xFFA5B4FC)
@@ -329,7 +364,7 @@ fun HomeScreen(
                         .padding(horizontal = 16.dp)
                 )
 
-                // TAP TO INTERRUPT BUTTON (when Nova is speaking)
+                // TAP TO INTERRUPT BUTTON (when Nova is speaking in live or standard mode)
                 AnimatedVisibility(
                     visible = isSpeaking,
                     enter = fadeIn() + expandVertically(),
@@ -355,6 +390,34 @@ fun HomeScreen(
                         Text(
                             text = "TAP TO INTERRUPT",
                             fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
+
+                // Prominent End Call button when Live Call is active
+                if (isLiveCallActive) {
+                    Button(
+                        onClick = onToggleLiveCall,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFEF4444).copy(alpha = 0.2f),
+                            contentColor = Color(0xFFEF4444)
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CallEnd,
+                            contentDescription = "End Call",
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "HANG UP LIVE CALL",
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp
                         )
@@ -389,28 +452,51 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Big Glowing Mic Button
-                    Box(
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    colors = if (isListening) listOf(Color(0xFF00F2FE), Color(0xFF38BDF8))
-                                    else listOf(Color(0xFF00F2FE), Color(0xFF0D9488))
+                    if (isLiveCallActive) {
+                        // Live Call Hang Up Button (Red)
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color(0xFFEF4444), Color(0xFFB91C1C))
+                                    )
                                 )
+                                .clickable { onToggleLiveCall() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CallEnd,
+                                contentDescription = "End Call",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
                             )
-                            .clickable {
-                                if (isListening) onStopListening() else onStartListening()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = "Mic",
-                            tint = Color.Black,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        }
+                    } else {
+                        // Big Glowing Live Call / Mic Button
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = if (isListening) listOf(Color(0xFF00F2FE), Color(0xFF38BDF8))
+                                        else listOf(Color(0xFF00F2FE), Color(0xFF0D9488))
+                                    )
+                                )
+                                .clickable {
+                                    if (isListening) onStopListening() else onToggleLiveCall()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.PhoneInTalk,
+                                contentDescription = "Live Call",
+                                tint = Color.Black,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
 
                     // Transcript Snippet or Greeting Quote
@@ -418,10 +504,30 @@ fun HomeScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
-                                if (!isListening) onNavigateToChat()
+                                if (!isListening && !isLiveCallActive) onNavigateToChat()
                             }
                     ) {
-                        if (isListening) {
+                        if (isLiveCallActive) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF2DD4BF))
+                                )
+                                Text(
+                                    text = if (liveTranscript.isNotBlank()) "\"$liveTranscript\"" else "Real-time call connected... speak naturally",
+                                    color = Color(0xFF2DD4BF),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        } else if (isListening) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -453,8 +559,21 @@ fun HomeScreen(
                         }
                     }
 
-                    // Send or Chat Button
-                    if (isListening && liveTranscript.isNotBlank()) {
+                    // Action buttons (Live Call Pill / Send / Chat)
+                    if (isLiveCallActive) {
+                        Button(
+                            onClick = onToggleLiveCall,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFEF4444).copy(alpha = 0.2f),
+                                contentColor = Color(0xFFEF4444)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("HANG UP", fontSize = 10.5.sp, fontWeight = FontWeight.Black)
+                        }
+                    } else if (isListening && liveTranscript.isNotBlank()) {
                         Button(
                             onClick = {
                                 val text = liveTranscript.trim()
@@ -471,16 +590,18 @@ fun HomeScreen(
                             Text("SEND", fontSize = 11.sp, fontWeight = FontWeight.Black)
                         }
                     } else {
+                        // Live Call Pill button
                         Button(
-                            onClick = onNavigateToChat,
+                            onClick = onToggleLiveCall,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF1E293B),
+                                containerColor = Color(0xFF00F2FE).copy(alpha = 0.15f),
                                 contentColor = Color(0xFF00F2FE)
                             ),
                             shape = RoundedCornerShape(14.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00F2FE).copy(alpha = 0.4f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
-                            Text("CHAT", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("LIVE CALL", fontSize = 10.5.sp, fontWeight = FontWeight.Black)
                         }
                     }
                 }

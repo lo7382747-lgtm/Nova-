@@ -47,4 +47,14 @@ object AppModule {
             com.nova.assistant.BuildConfig.GEMINI_API_KEY.ifEmpty { "DEMO_KEY" }
         }
     }
+
+    @Provides
+    @Singleton
+    fun provideGeminiLiveSessionManager(
+        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
+    ): com.nova.assistant.live.GeminiLiveSessionManager {
+        return com.nova.assistant.live.GeminiLiveSessionManager(context) {
+            com.nova.assistant.BuildConfig.GEMINI_API_KEY.ifEmpty { "DEMO_KEY" }
+        }
+    }
 }

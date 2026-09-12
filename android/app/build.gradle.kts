@@ -10,6 +10,17 @@ android {
     namespace = "com.nova.assistant"
     compileSdk = 35
 
+    val localProperties = java.util.Properties().apply {
+        val file = rootProject.file("local.properties")
+        if (file.exists()) {
+            file.inputStream().use { load(it) }
+        }
+    }
+    val resolvedApiKey = (project.findProperty("GEMINI_API_KEY") as? String)
+        ?: localProperties.getProperty("GEMINI_API_KEY")
+        ?: System.getenv("GEMINI_API_KEY")
+        ?: ""
+
     defaultConfig {
         applicationId = "com.nova.assistant"
         minSdk = 26
@@ -18,7 +29,7 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "GEMINI_API_KEY", "\"${project.findProperty("GEMINI_API_KEY") ?: System.getenv("GEMINI_API_KEY") ?: ""}\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$resolvedApiKey\"")
     }
 
     compileOptions {
@@ -70,4 +81,7 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+
+    // OkHttp for Gemini Live Bidirectional WebSocket Audio Streaming
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

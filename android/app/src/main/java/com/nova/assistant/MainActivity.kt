@@ -35,6 +35,7 @@ import com.nova.assistant.data.local.ActivityLogEntity
 import com.nova.assistant.data.local.ChatMessageEntity
 import com.nova.assistant.data.local.MessageDao
 import com.nova.assistant.domain.WhatsAppManager
+import com.nova.assistant.live.GeminiLiveSessionManager
 import com.nova.assistant.ui.*
 import com.nova.assistant.ui.components.ActionSuggestion
 import com.nova.assistant.ui.components.BottomNavTab
@@ -45,6 +46,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.*
 import javax.inject.Inject
+import android.widget.Toast
 
 enum class Screen {
     MAIN_TABS,
@@ -65,6 +67,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     @Inject
     lateinit var geminiRepository: GeminiRepository
+
+    @Inject
+    lateinit var geminiLiveSessionManager: GeminiLiveSessionManager
 
     // Hardware & Media services
     private var textToSpeech: TextToSpeech? = null
@@ -113,6 +118,40 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             initSpeechRecognizer()
         }
 
+        // Listen for Gemini Live bidirectional voice state and transcript events
+        lifecycleScope.launch {
+            geminiLiveSessionManager.assistantState.collect { state ->
+                if (geminiLiveSessionManager.isCallActive.value) {
+                    _novaState.value = state
+                }
+            }
+        }
+        lifecycleScope.launch {
+            geminiLiveSessionManager.liveTranscript.collect { transcript ->
+                if (geminiLiveSessionManager.isCallActive.value && transcript.isNotBlank()) {
+                    _liveTranscript.value = transcript
+                    _lastResponseSnippet.value = transcript
+                }
+            }
+        }
+        lifecycleScope.launch {
+            geminiLiveSessionManager.sessionError.collect { errorMsg ->
+                Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+            }
+        }
+        lifecycleScope.launch {
+            geminiLiveSessionManager.turnCompletedEvent.collect { responseText ->
+                activityLogDao.insertActivity(
+                    ActivityLogEntity(
+                        actionType = "LIVE_CALL_TURN",
+                        details = responseText.take(120),
+                        status = "SUCCESS",
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+
         setContent {
             val darkColors = darkColorScheme(
                 primary = Color(0xFF00F2FE),
@@ -133,6 +172,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val isVoiceRepliesEnabled by _isVoiceRepliesEnabled
                 val selectedLanguage by _selectedLanguage
                 val isTorchOn by _flashlightState
+                val isLiveCallActive by geminiLiveSessionManager.isCallActive.collectAsState()
+                val audioAmplitude by geminiLiveSessionManager.audioAmplitude.collectAsState()
 
                 val activities by activityLogDao.getAllActivities().collectAsState(initial = emptyList())
 
@@ -164,6 +205,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                     isTurboMode = isTurboMode,
                                     isVoiceRepliesEnabled = isVoiceRepliesEnabled,
                                     selectedLanguage = selectedLanguage,
+                                    isLiveCallActive = isLiveCallActive,
+                                    audioAmplitude = audioAmplitude,
+                                    onToggleLiveCall = {
+                                        if (isLiveCallActive) {
+                                            geminiLiveSessionManager.endLiveCall()
+                                            _novaState.value = NovaAssistantState.IDLE
+                                        } else {
+                                            stopSpeaking()
+                                            stopListening()
+                                            geminiLiveSessionManager.startLiveCall(selectedLanguage)
+                                        }
+                                    },
                                     onToggleTurboMode = { _isTurboMode.value = !_isTurboMode.value },
                                     onToggleVoiceReplies = {
                                         _isVoiceRepliesEnabled.value = !_isVoiceRepliesEnabled.value
@@ -174,7 +227,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                     },
                                     onStartListening = { startListening() },
                                     onStopListening = { stopListening() },
-                                    onInterruptSpeaking = { interruptSpeaking() },
+                                    onInterruptSpeaking = {
+                                        if (isLiveCallActive) {
+                                            geminiLiveSessionManager.triggerUserInterruption()
+                                        } else {
+                                            interruptSpeaking()
+                                        }
+                                    },
                                     onSendMessage = { prompt -> processUserPrompt(prompt) },
                                     onSuggestionSelected = { suggestion -> handleSuggestion(suggestion) },
                                     onNavigateToChat = { _currentTab.value = BottomNavTab.CHAT },
@@ -556,6 +615,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        geminiLiveSessionManager.endLiveCall()
         textToSpeech?.shutdown()
         speechRecognizer?.destroy()
     }
