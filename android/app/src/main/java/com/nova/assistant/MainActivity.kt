@@ -16,24 +16,28 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.nova.assistant.data.GeminiRepository
 import com.nova.assistant.data.local.ActivityLogDao
 import com.nova.assistant.data.local.ActivityLogEntity
+import com.nova.assistant.data.local.ApiKeyManager
 import com.nova.assistant.data.local.ChatMessageEntity
 import com.nova.assistant.data.local.MessageDao
+import com.nova.assistant.data.local.NovaSettingsManager
+import com.nova.assistant.domain.ContactsManager
 import com.nova.assistant.domain.WhatsAppManager
 import com.nova.assistant.live.GeminiLiveSessionManager
 import com.nova.assistant.ui.*
@@ -46,12 +50,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.*
 import javax.inject.Inject
-import android.widget.Toast
-
-enum class Screen {
-    MAIN_TABS,
-    SETTINGS
-}
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
@@ -66,10 +64,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     lateinit var whatsAppManager: WhatsAppManager
 
     @Inject
+    lateinit var contactsManager: ContactsManager
+
+    @Inject
+    lateinit var settingsManager: NovaSettingsManager
+
+    @Inject
     lateinit var geminiRepository: GeminiRepository
 
     @Inject
     lateinit var geminiLiveSessionManager: GeminiLiveSessionManager
+
+    @Inject
+    lateinit var apiKeyManager: ApiKeyManager
 
     // Hardware & Media services
     private var textToSpeech: TextToSpeech? = null
@@ -88,8 +95,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val _isVoiceRepliesEnabled = mutableStateOf(true)
     private val _selectedLanguage = mutableStateOf("EN") // "EN" or "HI"
     private val _currentTab = mutableStateOf(BottomNavTab.HOME)
-    private val _currentScreen = mutableStateOf(Screen.MAIN_TABS)
     private val _flashlightState = mutableStateOf(false)
+    private val _showApiKeyPrompt = mutableStateOf(false)
 
     private val requestAudioPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -100,6 +107,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Check if Gemini API key is configured
+        if (!apiKeyManager.isKeyConfigured()) {
+            _showApiKeyPrompt.value = true
+        }
 
         // Initialize Text to Speech
         textToSpeech = TextToSpeech(this, this)
@@ -161,7 +173,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             )
 
             MaterialTheme(colorScheme = darkColors) {
-                val currentScreen by _currentScreen
                 val currentTab by _currentTab
                 val novaState by _novaState
                 val liveTranscript by _liveTranscript
@@ -174,91 +185,151 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val audioAmplitude by geminiLiveSessionManager.audioAmplitude.collectAsState()
 
                 val activities by activityLogDao.getAllActivities().collectAsState(initial = emptyList())
+                val showApiKeyPrompt by _showApiKeyPrompt
+                val isKeyConfigured = apiKeyManager.isKeyConfigured()
 
-                if (currentScreen == Screen.SETTINGS) {
-                    SettingsScreen(
-                        onNavigateBack = { _currentScreen.value = Screen.MAIN_TABS }
-                    )
-                } else {
-                    Scaffold(
-                        bottomBar = {
-                            NovaBottomNav(
-                                currentTab = currentTab,
-                                onTabSelected = { _currentTab.value = it },
-                                activityCount = activities.size
+                if (showApiKeyPrompt && !isKeyConfigured) {
+                    AlertDialog(
+                        onDismissRequest = { _showApiKeyPrompt.value = false },
+                        title = {
+                            Text(
+                                "Gemini API Key Required",
+                                color = Color(0xFF00F2FE),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
                             )
                         },
-                        containerColor = Color(0xFF090D13)
-                    ) { padding ->
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(padding)
-                        ) {
-                            when (currentTab) {
-                                BottomNavTab.HOME -> HomeScreen(
-                                    novaState = novaState,
-                                    liveTranscript = liveTranscript,
-                                    lastResponseSnippet = lastResponseSnippet,
-                                    isTurboMode = isTurboMode,
-                                    isVoiceRepliesEnabled = isVoiceRepliesEnabled,
-                                    selectedLanguage = selectedLanguage,
-                                    isLiveCallActive = isLiveCallActive,
-                                    audioAmplitude = audioAmplitude,
-                                    onToggleLiveCall = {
-                                        if (isLiveCallActive) {
-                                            geminiLiveSessionManager.endLiveCall()
-                                            _novaState.value = NovaAssistantState.IDLE
-                                        } else {
-                                            stopSpeaking()
-                                            stopListening()
-                                            geminiLiveSessionManager.startLiveCall(selectedLanguage)
-                                        }
-                                    },
-                                    onToggleTurboMode = { _isTurboMode.value = !_isTurboMode.value },
-                                    onToggleVoiceReplies = {
-                                        _isVoiceRepliesEnabled.value = !_isVoiceRepliesEnabled.value
-                                        if (!_isVoiceRepliesEnabled.value) stopSpeaking()
-                                    },
-                                    onToggleLanguage = {
-                                        _selectedLanguage.value = if (selectedLanguage == "EN") "HI" else "EN"
-                                    },
-                                    onStartListening = { startListening() },
-                                    onStopListening = { stopListening() },
-                                    onInterruptSpeaking = {
-                                        if (isLiveCallActive) {
-                                            geminiLiveSessionManager.triggerUserInterruption()
-                                        } else {
-                                            interruptSpeaking()
-                                        }
-                                    },
-                                    onSendMessage = { prompt -> processUserPrompt(prompt) },
-                                    onSuggestionSelected = { suggestion -> handleSuggestion(suggestion) },
-                                    onNavigateToChat = { _currentTab.value = BottomNavTab.CHAT },
-                                    onNavigateToSettings = { _currentScreen.value = Screen.SETTINGS }
+                        text = {
+                            Text(
+                                "Please add your Gemini API key to use Nova. You can generate a free key from Google AI Studio and paste it in Settings.",
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    _showApiKeyPrompt.value = false
+                                    _currentTab.value = BottomNavTab.SETTINGS
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF00F2FE),
+                                    contentColor = Color(0xFF090D13)
                                 )
-
-                                BottomNavTab.CHAT -> ChatScreen(
-                                    onNavigateBack = { _currentTab.value = BottomNavTab.HOME },
-                                    onNavigateToSettings = { _currentScreen.value = Screen.SETTINGS }
-                                )
-
-                                BottomNavTab.AUTOMATION -> AutomationScreen(
-                                    onTriggerAction = { actionId, title -> handleAutomationAction(actionId, title) },
-                                    isFlashlightOn = isTorchOn,
-                                    onToggleFlashlight = { toggleFlashlight() },
-                                    onEmergencyStop = { emergencyStopAll() }
-                                )
-
-                                BottomNavTab.ACTIVITY -> ActivityScreen(
-                                    activities = activities,
-                                    onClearActivities = {
-                                        lifecycleScope.launch {
-                                            activityLogDao.clearAll()
-                                        }
-                                    }
-                                )
+                            ) {
+                                Text("Open Settings", fontWeight = FontWeight.Bold)
                             }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { _showApiKeyPrompt.value = false }) {
+                                Text("Later", color = Color(0xFF94A3B8))
+                            }
+                        },
+                        containerColor = Color(0xFF0F172A)
+                    )
+                }
+
+                Scaffold(
+                    bottomBar = {
+                        NovaBottomNav(
+                            currentTab = currentTab,
+                            onTabSelected = { _currentTab.value = it },
+                            activityCount = activities.size
+                        )
+                    },
+                    containerColor = Color(0xFF090D13)
+                ) { padding ->
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                    ) {
+                        when (currentTab) {
+                            BottomNavTab.HOME -> HomeScreen(
+                                novaState = novaState,
+                                liveTranscript = liveTranscript,
+                                lastResponseSnippet = lastResponseSnippet,
+                                isTurboMode = isTurboMode,
+                                isVoiceRepliesEnabled = isVoiceRepliesEnabled,
+                                selectedLanguage = selectedLanguage,
+                                isKeyConfigured = isKeyConfigured,
+                                isLiveCallActive = isLiveCallActive,
+                                audioAmplitude = audioAmplitude,
+                                onToggleLiveCall = {
+                                    if (isLiveCallActive) {
+                                        geminiLiveSessionManager.endLiveCall()
+                                        _novaState.value = NovaAssistantState.IDLE
+                                    } else {
+                                        stopSpeaking()
+                                        stopListening()
+                                        geminiLiveSessionManager.startLiveCall(selectedLanguage)
+                                    }
+                                },
+                                onToggleTurboMode = { _isTurboMode.value = !_isTurboMode.value },
+                                onToggleVoiceReplies = {
+                                    _isVoiceRepliesEnabled.value = !_isVoiceRepliesEnabled.value
+                                    if (!_isVoiceRepliesEnabled.value) stopSpeaking()
+                                },
+                                onToggleLanguage = {
+                                    _selectedLanguage.value = if (selectedLanguage == "EN") "HI" else "EN"
+                                },
+                                onStartListening = { startListening() },
+                                onStopListening = { stopListening() },
+                                onInterruptSpeaking = {
+                                    if (isLiveCallActive) {
+                                        geminiLiveSessionManager.triggerUserInterruption()
+                                    } else {
+                                        interruptSpeaking()
+                                    }
+                                },
+                                onSendMessage = { prompt -> processUserPrompt(prompt) },
+                                onSuggestionSelected = { suggestion -> handleSuggestion(suggestion) },
+                                onNavigateToChat = { _currentTab.value = BottomNavTab.CHAT },
+                                onNavigateToSettings = { _currentTab.value = BottomNavTab.SETTINGS }
+                            )
+
+                            BottomNavTab.CHAT -> ChatScreen(
+                                onNavigateBack = { _currentTab.value = BottomNavTab.HOME },
+                                onNavigateToSettings = { _currentTab.value = BottomNavTab.SETTINGS }
+                            )
+
+                            BottomNavTab.AUTOMATION -> AutomationScreen(
+                                onTriggerAction = { actionId, title -> handleAutomationAction(actionId, title) },
+                                isFlashlightOn = isTorchOn,
+                                onToggleFlashlight = { toggleFlashlight() },
+                                onEmergencyStop = { emergencyStopAll() }
+                            )
+
+                            BottomNavTab.ACTIVITY -> ActivityScreen(
+                                activities = activities,
+                                onClearActivities = {
+                                    lifecycleScope.launch {
+                                        activityLogDao.clearAll()
+                                    }
+                                }
+                            )
+
+                            BottomNavTab.SETTINGS -> SettingsScreen(
+                                apiKeyManager = apiKeyManager,
+                                settingsManager = settingsManager,
+                                contactsManager = contactsManager,
+                                whatsAppManager = whatsAppManager,
+                                savedMessagesCount = activities.size,
+                                onNavigateBack = { _currentTab.value = BottomNavTab.HOME },
+                                onClearChatHistory = {
+                                    lifecycleScope.launch {
+                                        messageDao.deleteAll()
+                                        activityLogDao.clearAll()
+                                        Toast.makeText(this@MainActivity, "Conversation history cleared", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onTestSpeak = { sampleText, rate ->
+                                    textToSpeech?.setSpeechRate(rate)
+                                    speakText(sampleText)
+                                },
+                                onStopSpeaking = { stopSpeaking() }
+                            )
                         }
                     }
                 }

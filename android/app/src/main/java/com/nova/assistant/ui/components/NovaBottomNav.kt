@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -26,7 +27,8 @@ enum class BottomNavTab(val title: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
     CHAT("Chat", Icons.Default.Chat),
     AUTOMATION("Automation", Icons.Default.SmartToy),
-    ACTIVITY("Activity", Icons.Default.History)
+    ACTIVITY("Activity", Icons.Default.History),
+    SETTINGS("Settings", Icons.Default.Settings)
 }
 
 @Composable

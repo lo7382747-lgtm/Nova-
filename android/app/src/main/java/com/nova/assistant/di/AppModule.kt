@@ -42,19 +42,35 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideGeminiRepository(messageDao: MessageDao): com.nova.assistant.data.GeminiRepository {
+    fun provideApiKeyManager(@ApplicationContext context: Context): com.nova.assistant.data.local.ApiKeyManager {
+        return com.nova.assistant.data.local.ApiKeyManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideNovaSettingsManager(@ApplicationContext context: Context): com.nova.assistant.data.local.NovaSettingsManager {
+        return com.nova.assistant.data.local.NovaSettingsManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideGeminiRepository(
+        messageDao: MessageDao,
+        apiKeyManager: com.nova.assistant.data.local.ApiKeyManager
+    ): com.nova.assistant.data.GeminiRepository {
         return com.nova.assistant.data.GeminiRepository(messageDao) {
-            com.nova.assistant.BuildConfig.GEMINI_API_KEY.ifEmpty { "DEMO_KEY" }
+            apiKeyManager.getEffectiveApiKey().ifEmpty { "DEMO_KEY" }
         }
     }
 
     @Provides
     @Singleton
     fun provideGeminiLiveSessionManager(
-        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
+        @ApplicationContext context: Context,
+        apiKeyManager: com.nova.assistant.data.local.ApiKeyManager
     ): com.nova.assistant.live.GeminiLiveSessionManager {
         return com.nova.assistant.live.GeminiLiveSessionManager(context) {
-            com.nova.assistant.BuildConfig.GEMINI_API_KEY.ifEmpty { "DEMO_KEY" }
+            apiKeyManager.getEffectiveApiKey().ifEmpty { "DEMO_KEY" }
         }
     }
 }

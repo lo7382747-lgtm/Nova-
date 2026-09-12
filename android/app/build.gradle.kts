@@ -86,4 +86,7 @@ dependencies {
 
     // OkHttp for Gemini Live Bidirectional WebSocket Audio Streaming
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // AndroidX Security Crypto for EncryptedSharedPreferences (Hardware AES-256)
+    implementation("androidx.security:security-crypto:1.0.0")
 }
