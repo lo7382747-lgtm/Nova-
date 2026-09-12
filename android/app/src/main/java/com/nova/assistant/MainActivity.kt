@@ -365,6 +365,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         textToSpeech?.let { tts ->
             val lang = if (_selectedLanguage.value == "HI") Locale("hi", "IN") else Locale.US
             tts.language = lang
+            val currentSettings = settingsManager.getSettings()
+            tts.setSpeechRate(currentSettings.voiceRate)
             _novaState.value = NovaAssistantState.SPEAKING
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nova_reply_${System.currentTimeMillis()}")
         }
@@ -638,9 +640,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     speakText(fullText)
                 } else {
                     val fallback = if (_selectedLanguage.value == "HI") {
-                        "Namaste! Main Nova hoon. Main aapke messages, calls aur automation handle kar sakti hoon."
+                        "Namaste Sir. Nova online aur aapki sewa mein taiyar hai. Batayein, main aapki kya madad kar sakta hoon?"
                     } else {
-                        "Hello! I am Nova, your AI assistant. How can I help you today?"
+                        "Good day, Sir. Nova online and standing by. How may I be of assistance?"
                     }
                     _lastResponseSnippet.value = fallback
                     speakText(fallback)
@@ -650,25 +652,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val fallback = when {
                     prompt.contains("flashlight", ignoreCase = true) || prompt.contains("torch", ignoreCase = true) -> {
                         toggleFlashlight()
-                        "Toggled flashlight for you!"
+                        "Flashlight toggled, Sir."
                     }
                     prompt.contains("battery", ignoreCase = true) -> {
                         checkBatteryLevel()
-                        "Checking battery status."
+                        "Checking battery status, Sir."
                     }
                     prompt.contains("whatsapp", ignoreCase = true) -> {
                         sendWhatsAppAction("Priya", "919876543210", "Hello from Nova")
-                        "Dispatched WhatsApp action."
+                        "Certainly, Sir. WhatsApp dispatched."
                     }
                     prompt.contains("call", ignoreCase = true) -> {
                         dialNumber("9876543210", "Rahul")
-                        "Calling contact now."
+                        "Initiating call now, Sir."
                     }
                     else -> {
                         if (_selectedLanguage.value == "HI") {
-                            "Ji, maine sun liya: \"$prompt\". Nova aapki command execute karne ke liye ready hai!"
+                            "Ji Sir, maine sun liya. Nishchit roop se command execute ki ja rahi hai."
                         } else {
-                            "Understood: \"$prompt\". Nova is ready to assist you!"
+                            "Understood, Sir. Initiating command now."
                         }
                     }
                 }

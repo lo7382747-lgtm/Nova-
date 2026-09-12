@@ -126,7 +126,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <>
                 <Volume2 className="w-3 h-3 text-teal-400 animate-pulse" />
                 <span>
-                  {settings.voicePersona === 'indian_bilingual'
+                  {settings.voicePersona === 'calm_relaxed'
+                    ? 'Calm & Measured'
+                    : settings.voicePersona === 'indian_bilingual'
                     ? 'Bilingual Voice'
                     : settings.voicePersona === 'crystal_clear'
                     ? 'Clear Studio'

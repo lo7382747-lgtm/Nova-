@@ -557,9 +557,9 @@ fun SettingsScreen(
                                 } else {
                                     isPlayingSample = true
                                     val sampleText = if (settings.voiceLanguage == "hi" || settings.voicePersona == "bilingual") {
-                                        "Namaste! Main Nova hoon, aapki AI assistant. Main Hindi aur English dono mein baat kar sakti hoon."
+                                        "Namaste Sir. Nova online aur aapki sewa mein taiyar hai. Batayein, main aapki kya madad kar sakta hoon?"
                                     } else {
-                                        "Hello! I am Nova, your AI assistant powered by Gemini. Everything is working smoothly."
+                                        "Good day, Sir. Nova online and fully operational. All systems are functioning within optimal parameters. How may I assist you today?"
                                     }
                                     onTestSpeak(sampleText, settings.voiceRate)
                                 }

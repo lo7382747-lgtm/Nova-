@@ -27,7 +27,7 @@ fun ChatScreen(
         mutableStateListOf(
             ChatMessageEntity(
                 role = "assistant",
-                content = "Hi! I'm Nova. How can I help you today?",
+                content = "Good day, Sir. Nova online and fully operational. How may I be of assistance today?",
                 timestamp = System.currentTimeMillis()
             )
         )

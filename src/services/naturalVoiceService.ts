@@ -460,16 +460,16 @@ class NaturalVoiceService {
    * Test speech demonstration
    */
   public async testVoiceSample(
-    persona: VoicePersona = 'natural_warm',
-    rate = 0.98,
+    persona: VoicePersona = 'calm_relaxed',
+    rate = 0.92,
     pitch = 1.0,
     onStart?: () => void,
     onEnd?: () => void
   ): Promise<void> {
     const sample =
       persona === 'indian_bilingual'
-        ? 'Namaste! Nova ki voice ab bilkul natural aur crystal clear hai. Main aapki kya madad kar sakti hoon?'
-        : 'Hello! Nova voice is now tuned for crystal clarity and natural warmth. How can I help you today?';
+        ? 'Namaste Sir. Nova online aur aapki sewa mein taiyar hai. Batayein, main aapki kya madad kar sakta hoon?'
+        : 'Good day, Sir. Nova online and fully operational. All systems are functioning within optimal parameters. How may I assist you today?';
 
     await this.speak(
       sample,

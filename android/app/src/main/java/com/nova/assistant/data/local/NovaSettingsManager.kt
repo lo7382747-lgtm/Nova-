@@ -18,9 +18,9 @@ data class SensitiveAppItem(
 )
 
 data class NovaSettingsState(
-    val voicePersona: String = "bilingual", // bilingual, natural_warm, crystal_clear, calm_relaxed
+    val voicePersona: String = "calm_relaxed", // bilingual, natural_warm, crystal_clear, calm_relaxed
     val speechClarityEnhancer: Boolean = true,
-    val voiceRate: Float = 1.0f,
+    val voiceRate: Float = 0.92f, // Calm, measured pace (J.A.R.V.I.S. cadence)
     val voiceLanguage: String = "auto", // auto, en, hi
     val voiceRepliesEnabled: Boolean = true,
     val instantVoiceEnabled: Boolean = true,
@@ -55,9 +55,9 @@ class NovaSettingsManager @Inject constructor(
     fun getSettings(): NovaSettingsState = _settingsFlow.value
 
     private fun loadSettings(): NovaSettingsState {
-        val voicePersona = prefs.getString("voice_persona", "bilingual") ?: "bilingual"
+        val voicePersona = prefs.getString("voice_persona", "calm_relaxed") ?: "calm_relaxed"
         val speechClarity = prefs.getBoolean("speech_clarity", true)
-        val voiceRate = prefs.getFloat("voice_rate", 1.0f)
+        val voiceRate = prefs.getFloat("voice_rate", 0.92f)
         val voiceLanguage = prefs.getString("voice_language", "auto") ?: "auto"
         val voiceReplies = prefs.getBoolean("voice_replies", true)
         val instantVoice = prefs.getBoolean("instant_voice", true)
