@@ -141,13 +141,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         lifecycleScope.launch {
             geminiLiveSessionManager.turnCompletedEvent.collect { responseText ->
-                activityLogDao.insertActivity(
-                    ActivityLogEntity(
-                        actionType = "LIVE_CALL_TURN",
-                        details = responseText.take(120),
-                        status = "SUCCESS",
-                        timestamp = System.currentTimeMillis()
-                    )
+                logActivity(
+                    type = "LIVE_CALL_TURN",
+                    target = "Nova Live",
+                    message = responseText.take(120),
+                    status = "SUCCESS"
                 )
             }
         }

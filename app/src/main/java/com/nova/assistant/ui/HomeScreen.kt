@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nova.assistant.ui.components.*
+import kotlin.math.sin
+import kotlin.math.PI
 
 @Composable
 fun HomeScreen(
@@ -327,7 +329,7 @@ fun HomeScreen(
                     ) {
                         val barCount = 7
                         for (i in 0 until barCount) {
-                            val factor = (sin((i.toFloat() / barCount) * Math.PI) * (0.4f + audioAmplitude * 0.6f)).coerceIn(0.15f, 1.0f).toFloat()
+                            val factor = (sin((i.toFloat() / barCount) * PI.toFloat()) * (0.4f + audioAmplitude * 0.6f)).coerceIn(0.15f, 1.0f)
                             Box(
                                 modifier = Modifier
                                     .width(4.dp)
