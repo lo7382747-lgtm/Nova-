@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -6,20 +8,20 @@ plugins {
     alias(libs.plugins.hilt.android)
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    val parentFile = rootProject.file("../local.properties")
+    val targetFile = if (file.exists()) file else if (parentFile.exists()) parentFile else null
+    targetFile?.inputStream()?.use { load(it) }
+}
+val resolvedApiKey: String = (project.findProperty("GEMINI_API_KEY") as? String)
+    ?: localProperties.getProperty("GEMINI_API_KEY")
+    ?: System.getenv("GEMINI_API_KEY")
+    ?: ""
+
 android {
     namespace = "com.nova.assistant"
     compileSdk = 35
-
-    val localProperties = java.util.Properties().apply {
-        val file = rootProject.file("local.properties")
-        if (file.exists()) {
-            file.inputStream().use { load(it) }
-        }
-    }
-    val resolvedApiKey = (project.findProperty("GEMINI_API_KEY") as? String)
-        ?: localProperties.getProperty("GEMINI_API_KEY")
-        ?: System.getenv("GEMINI_API_KEY")
-        ?: ""
 
     defaultConfig {
         applicationId = "com.nova.assistant"
